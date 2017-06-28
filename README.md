@@ -1,7 +1,7 @@
 # cb-response-smb1-utility
 A simple utility to check the status of and/or disable SMBv1 on Windows system via Cb Response's Live Response functionality.
 
-Assuming that you’re already set up with [cbapi-python](https://github.com/carbonblack/cbapi-python), a simple survey is as simple as:
+Assuming that you’re already set up wih [cbapi-python](https://github.com/carbonblack/cbapi-python), a survey is as simple as:
 
     ./smb1-util.py 
 
