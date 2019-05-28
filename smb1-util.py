@@ -8,7 +8,7 @@ from time import sleep
 
 from cbapi.response import CbEnterpriseResponseAPI
 from cbapi.response.models import Sensor
-from cbapi.response.live_response_api import *
+from cbapi.live_response_api import *
 from cbapi.errors import *
 
 # This is the key that we use to determine what the Automatic Update policy
@@ -33,6 +33,23 @@ def log_info(msg):
     """
     msg = 'INFO: {0}\n'.format(msg)
     sys.stdout.write(msg)
+
+
+def hostname_from_fqdn(hostname):
+    if '.' in hostname:
+        hostname = hostname.split('.')[0]
+
+    return hostname
+
+
+def hostnames_to_list(path):
+    ret = set()
+    with open(path, 'r') as fh_input:
+        for entry in fh_input.readlines():
+            entry = entry.strip().lower()
+            ret.add(hostname_from_fqdn(entry))
+
+    return list(ret)
 
 
 def set_smb1_disabled(lr, sensor):
@@ -63,16 +80,23 @@ def get_smb1_status(lr, sensor):
     return output
 
 
-def process_sensor(cb, sensor, update=False, debug=False):
+def process_sensor(cb, sensor, update=False, debug=False, ignore_hosts=None):
     """Do things specific to this sensor. For now:
         - Skip non-Windows endpoints
         - Output name of offline endpoints
         - Get SMB1 status of all that remain
     """
     sensor_name = sensor.computer_name.lower()
+    sensor_ignored = False
+
+    if ignore_hosts is not None:
+        if hostname_from_fqdn(sensor_name) in ignore_hosts:
+            sensor_ignored = True
 
     if 'windows' in sensor.os_environment_display_string.lower():
-        if 'online' not in sensor.status.lower():
+        if sensor_ignored == True:
+            ret = '%s,%s' % (sensor_name, 'ignored')
+        elif 'online' not in sensor.status.lower():
             ret = '%s,%s' % (sensor_name, 'offline')
         else:
             try:
@@ -110,7 +134,7 @@ def process_sensor(cb, sensor, update=False, debug=False):
         
 
 def process_sensors(cb, query_base=None, update=False, max_threads=None,
-                    debug=False):
+                    debug=False, ignore_hosts=None):
     """Fetch all sensor objects associated with the cb server instance, and
     keep basic state as they are processed.
     """
@@ -144,7 +168,7 @@ def process_sensors(cb, query_base=None, update=False, max_threads=None,
             for i in range(available_threads):
                 sensor = q.get()
                 t = threading.Thread(target=process_sensor, 
-                                    args=(cb, sensor, update, debug))
+                                    args=(cb, sensor, update, debug, ignore_hosts))
                 threads.append(t)
                 t.start()
 
@@ -175,10 +199,13 @@ def main():
                         help="Target sensor matching hostname.")
     s.add_argument("--ipaddr", type=str,  action="store",
                         help="Target sensor matching IP address (dotted quad).")
-
+                        
     # Options specific to this script
     parser.add_argument("--disable-smb1", action="store_true",
                         help="If SMB1 is enabled, disable it.")
+    parser.add_argument("--ignore-hosts", type=str,  action="store",
+                        help="A file containing hostnames to ignore.")
+
 
     args = parser.parse_args()
 
@@ -186,6 +213,11 @@ def main():
         cb = CbEnterpriseResponseAPI(profile=args.profile)
     else:
         cb = CbEnterpriseResponseAPI()
+
+    if args.ignore_hosts:
+        ignore_hosts_list = hostnames_to_list(args.ignore_hosts)
+    else:
+        ignore_hosts_list = None
 
     query_base = None
     if args.group_id:
@@ -198,7 +230,7 @@ def main():
     process_sensors(cb, query_base=query_base, 
                     update=args.disable_smb1,
                     max_threads=args.max_threads,
-                    debug=args.debug)
+                    debug=args.debug, ignore_hosts=ignore_hosts_list)
         
 
 if __name__ == '__main__':
